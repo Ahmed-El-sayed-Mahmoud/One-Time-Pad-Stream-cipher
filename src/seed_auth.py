@@ -1,6 +1,5 @@
 import hmac
 import hashlib
-from LCG import LCG
 
 
 class HMACAuth:
@@ -9,7 +8,7 @@ class HMACAuth:
         """
         Initialize the HMACAuth class.
         """
-        self.key = key
+        self.key = key.to_bytes(32, 'big')  # Ensure the key is 32 bytes long
 
     def compute_hmac(self, data):
         return hmac.new(self.key, data, hashlib.sha256).digest()

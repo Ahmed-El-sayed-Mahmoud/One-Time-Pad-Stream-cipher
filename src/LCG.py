@@ -1,9 +1,12 @@
+from config import CONFIG
+
+
 class LCG:
     """
     Linear Congruential Generator (LCG) for generating pseudo-random numbers.
     """
 
-    def __init__(self, a=7, b=0, m=127, seed=42):
+    def __init__(self, a=CONFIG["LCG"]["a"], b=CONFIG["LCG"]["b"], m=CONFIG["LCG"]["m"], seed=CONFIG["LCG"]["seed"]):
         """
         Initialize the LCG with parameters a, b, m and seed.
 

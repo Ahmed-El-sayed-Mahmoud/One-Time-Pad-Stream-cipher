@@ -3,20 +3,29 @@ from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 
 
-class SeedEncryption:
-    def __init__(self, key: bytes):
-        # AES key must be 16, 24, or 32 bytes long (128, 192, or 256 bits)
-        self.key = key
+class SeedEncryptor:
+    def __init__(self, key):
+        self.key = key.to_bytes(32, 'big') if isinstance(key, int) else key[:32]  # Truncate if too long
 
-    def encrypt_seed(self, seed_bytes: bytes):
-        iv = get_random_bytes(16)  # Initialization Vector (16 bytes for AES)
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        encrypted_seed = cipher.encrypt(pad(seed_bytes, AES.block_size))
-        return iv + encrypted_seed  # Prepend IV for use during decryption
+    def encrypt_seed(self, seed):
+        """Encrypts the seed using AES-256 in CBC mode with a random IV."""
+        seed_bytes = seed.to_bytes(8, 'little')
 
-    def decrypt_seed(self, encrypted_seed: bytes):
-        iv = encrypted_seed[:16]
-        ciphertext = encrypted_seed[16:]
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        decrypted_seed = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return decrypted_seed
+        iv = get_random_bytes(AES.block_size)
+
+        cipher = AES.new(self.key, AES.MODE_CBC, iv=iv)
+        padded_data = pad(seed_bytes, AES.block_size)
+        ciphertext = cipher.encrypt(padded_data)
+
+        return iv + ciphertext
+
+    def decrypt_seed(self, encrypted_data):
+        """Decrypts the seed from combined IV + ciphertext."""
+        iv = encrypted_data[:AES.block_size]
+        ciphertext = encrypted_data[AES.block_size:]
+
+        cipher = AES.new(self.key, AES.MODE_CBC, iv=iv)
+        decrypted_padded = cipher.decrypt(ciphertext)
+        seed_bytes = unpad(decrypted_padded, AES.block_size)
+
+        return int.from_bytes(seed_bytes, 'little')

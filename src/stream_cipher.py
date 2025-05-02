@@ -19,10 +19,8 @@ class StreamCipher:
         self.lcg = LCG(a, b, m, seed)
 
     def encrypt(self, plaintext):
-        """
-        :param file_name: Name of the input file
-        :return: Ciphertext as a list of integers
-        """
+        keystream = self.lcg.n_next(len(plaintext))
+        return bytes([p ^ k for p, k in zip(plaintext, keystream)])
 
-        ciphertext = np.bitwise_xor(plaintext, self.lcg.n_next(len(plaintext)))
-        return ciphertext
+    def decrypt(self, ciphertext):
+        return self.encrypt(ciphertext)

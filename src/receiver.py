@@ -1,74 +1,81 @@
-import numpy as np
+import socket
+import pickle
 
-from file_io import FileIO
-from src.seed_auth import HMACAuth
+from websockets import SecurityError
+
 from stream_cipher import StreamCipher
-from seed_encryption import SeedEncryption
-from communication import Communication
-from LCG import LCG
+from seed_encryption import SeedEncryptor
 from key_exchange import DiffieHellman
+from seed_auth import HMACAuth
+from file_io import FileIO
+from config import CONFIG
 
 
 class Receiver:
     def __init__(self):
-        self.communication = Communication()
-        self.file_io = FileIO()
-        self.seed_encryption = SeedEncryption()
-        self.hmac_auth = HMACAuth()
-        self.diffie_hellman = DiffieHellman()
-        self.lcg = LCG()
+        self.dh = DiffieHellman()
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind(("localhost", 65432))
+        self.sock.listen()
 
-    def receive_seed(self):
-        """
-        Receive the encrypted seed from the sender and decrypt it.
-        """
-        encrypted_seed = self.communication.receive()
-        decrypted_seed = self.seed_encryption.decrypt_seed(encrypted_seed)
-        return decrypted_seed
+    def accept_connection(self):
+        self.conn, self.addr = self.sock.accept()
+        print(f"Connected by {self.addr}")
 
-    def receive_public_key(self):
-        """
-        Receive the public key from the sender.
-        """
-        public_key = self.communication.receive()
-        return public_key
+    def receive_data(self):
+        """Receive and unpack data"""
+        data = pickle.loads(self.conn.recv(4096))
+        return data[0], data[1:]
+
+    def send_data(self, data_type, *data):
+        """Send data with type identifier"""
+        self.conn.sendall(pickle.dumps((data_type, *data)))
+
+    def establish_connection(self):
+        self.accept_connection()
+
+        # Step 1: Receive sender's public key
+        msg_type, (their_public_key,) = self.receive_data()
+        if msg_type != "DH_PUBLIC":
+            raise ValueError("Key exchange failed")
+        print(f"Received DH public key: {their_public_key}")
+
+        # Step 2: Send our public key
+        self.send_data("DH_PUBLIC", self.dh.generate_public_key())
+        print(f"Sent DH public key: {self.dh.public_key}")
+
+        # Generate shared key
+        shared_key = self.dh.generate_shared_secret(their_public_key)
+
+        # Step 3: Receive and verify seed
+        msg_type, (encrypted_seed, seed_hmac) = self.receive_data()
+        if msg_type != "SEED":
+            raise ValueError("Seed transmission failed")
+
+        authenticator = HMACAuth(shared_key)
+        if not authenticator.verify_hmac(encrypted_seed, seed_hmac):
+            raise ValueError("HMAC verification failed")
+
+        encryptor = SeedEncryptor(shared_key)
+        print("Received encrypted seed", encrypted_seed)
+        seed = encryptor.decrypt_seed(encrypted_seed)
+        print(f"Decrypted seed: {seed}")
+
+        # Step 4: Receive and decrypt data
+        cipher = StreamCipher(seed=seed)
+        msg_type, (ciphertext,) = self.receive_data()
+        print("RECEIVED CIPHER", ciphertext)
+        if msg_type != "DATA":
+            raise ValueError("Data transmission failed")
+
+        plaintext = cipher.decrypt(ciphertext)
+        print(f"Decrypted data: {plaintext}")
+        FileIO.write_text_file(plaintext, "output.txt")
+        print("Received and decrypted data")
+
+        self.conn.close()
 
 
-    def send_public_key(self):
-        """
-        Send the public key to the sender.
-        """
-        public_key = self.diffie_hellman.generate_public_key()
-        self.communication.send(public_key)
-
-    def receive_encrypted_message(self):
-        """
-        Receive the encrypted message from the sender.
-        """
-        encrypted_message = self.communication.receive()
-        return encrypted_message
-
-    def receive_hmac(self):
-        """
-        Receive the HMAC from the sender.
-        """
-        hmac = self.communication.receive()
-        return hmac
-
-    def verify_hmac(self, message, hmac):
-        """
-        :param message:
-        :param hmac:
-        :return:
-        """
-        # Verify the HMAC of the received message
-        return self.hmac_auth.verify_hmac(message, hmac)
-
-    def decrypt_message(self, encrypted_message):
-        """
-        Decrypt the encrypted message using the LCG to generate a keystream.
-        """
-        keystream = self.lcg.generate_sequence(len(encrypted_message))
-        decrypted_message = np.bitwise_xor(encrypted_message, keystream)
-        print("Decrypted message:", decrypted_message)
-        return decrypted_message
+if __name__ == "__main__":
+    receiver = Receiver()
+    receiver.establish_connection()

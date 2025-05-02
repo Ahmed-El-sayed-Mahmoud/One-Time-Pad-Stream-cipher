@@ -12,5 +12,4 @@ class FileIO:
     @staticmethod
     def write_text_file(data, filename):
         with open(filename, 'w') as f:
-            for value in data:
-                f.write(f"{value}\n")
+            f.write(data.decode('utf-8'))
