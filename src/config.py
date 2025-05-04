@@ -11,5 +11,6 @@ CONFIG = {
     },
     "AES": {
         "block_size": 16
-    }
+    },
+    "BATCH_SIZE": 10,
 }

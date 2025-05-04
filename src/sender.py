@@ -9,8 +9,10 @@ from config import CONFIG
 import os
 import time
 
+chunk_size = CONFIG["BATCH_SIZE"]
 
-class SecureSender:
+
+class Sender:
     def __init__(self):
         self.dh = DiffieHellman()
         self.seed = int.from_bytes(os.urandom(8), 'big')
@@ -32,7 +34,7 @@ class SecureSender:
             except (ConnectionRefusedError, socket.timeout) as e:
                 print(f"Connection attempt {attempt} failed: {str(e)}")
                 if attempt < self.max_retries:
-                    time.sleep(1)  # Wait before retrying
+                    time.sleep(1)
                 continue
             except Exception as e:
                 print(f"Unexpected connection error: {str(e)}")
@@ -61,7 +63,7 @@ class SecureSender:
                     unpickled = pickle.loads(data)
                     return unpickled[0], unpickled[1:]
                 except pickle.UnpicklingError:
-                    continue  # Need more data
+                    continue
 
             raise ConnectionError("Connection closed by receiver")
         except socket.timeout:
@@ -99,14 +101,17 @@ class SecureSender:
             raise ConnectionError("Failed to send encrypted seed")
 
     def send_encrypted_file(self):
-        """Encrypt and send the file data"""
+        """Encrypt and send the file data in chunks of up to 10 bytes"""
         try:
             plaintext = FileIO.read_input_file("input.txt")
             cipher = StreamCipher(seed=self.seed)
             ciphertext = cipher.encrypt(plaintext)
 
-            if not self.send_data("DATA", ciphertext):
-                raise ConnectionError("Failed to send encrypted data")
+            # Split ciphertext into 10-byte chunks and send each
+            for i in range(0, len(ciphertext), chunk_size):
+                chunk = ciphertext[i:i+chunk_size]
+                if not self.send_data("DATA", chunk):
+                    raise ConnectionError("Failed to send encrypted data chunk")
             print("File data sent successfully")
         except FileNotFoundError:
             raise FileNotFoundError("Input file not found")
@@ -132,5 +137,5 @@ class SecureSender:
 
 
 if __name__ == "__main__":
-    sender = SecureSender()
+    sender = Sender()
     sender.initiate_communication()

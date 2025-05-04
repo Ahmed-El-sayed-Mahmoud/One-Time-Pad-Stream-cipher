@@ -1,5 +1,6 @@
 import socket
 import pickle
+from io import BytesIO
 
 from websockets import SecurityError
 
@@ -17,15 +18,35 @@ class Receiver:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind(("localhost", 65432))
         self.sock.listen()
+        self.buffer = b''  # Buffer for incoming data
 
     def accept_connection(self):
         self.conn, self.addr = self.sock.accept()
         print(f"Connected by {self.addr}")
 
     def receive_data(self):
-        """Receive and unpack data"""
-        data = pickle.loads(self.conn.recv(4096))
-        return data[0], data[1:]
+        """Receive and unpack data with proper buffering"""
+        while True:
+            if self.buffer:
+                buffer_stream = BytesIO(self.buffer)
+                unpickler = pickle.Unpickler(buffer_stream)
+                try:
+                    data = unpickler.load()
+                    bytes_processed = buffer_stream.tell()
+                    self.buffer = self.buffer[bytes_processed:]
+                    return data[0], data[1:]
+                except Exception as e:
+                    # Need more data to complete the unpickling
+                    pass
+
+            # Receive more data from the connection
+            chunk = self.conn.recv(4096)
+            if not chunk:
+                if self.buffer:
+                    raise pickle.UnpicklingError("Incomplete data received")
+                else:
+                    raise ConnectionError("Connection closed by sender")
+            self.buffer += chunk
 
     def send_data(self, data_type, *data):
         """Send data with type identifier"""
@@ -61,13 +82,20 @@ class Receiver:
         seed = encryptor.decrypt_seed(encrypted_seed)
         print(f"Decrypted seed: {seed}")
 
-        # Step 4: Receive and decrypt data
+        # Step 4: Receive and decrypt data chunks
         cipher = StreamCipher(seed=seed)
-        msg_type, (ciphertext,) = self.receive_data()
-        print("RECEIVED CIPHER", ciphertext)
-        if msg_type != "DATA":
-            raise ValueError("Data transmission failed")
+        ciphertext = b''
+        try:
+            while True:
+                msg_type, (chunk,) = self.receive_data()
+                if msg_type != "DATA":
+                    raise ValueError(f"Unexpected message type: {msg_type}")
+                ciphertext += chunk
+        except (ConnectionError, pickle.UnpicklingError):
+            # Connection closed normally after all data chunks
+            pass
 
+        print("RECEIVED CIPHER", ciphertext)
         plaintext = cipher.decrypt(ciphertext)
         print(f"Decrypted data: {plaintext}")
         FileIO.write_text_file(plaintext, "output.txt")
